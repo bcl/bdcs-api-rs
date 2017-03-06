@@ -1124,6 +1124,14 @@ pub struct RecipesNewResponse {
     status: bool
 }
 
+/// Used to POST a new recipe (or update to a recipe), including a commit message
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RecipesNewPost {
+    recipe: Recipe,
+    #[serde(default)]
+    message: Option<String>
+}
+
 /// The CORS system 'protects' the client via an OPTIONS request to make sure it is allowed
 ///
 /// This returns an empty response, with the CORS headers set by [CORS](struct.CORS.html).
@@ -1140,22 +1148,22 @@ pub fn options_recipes_new() -> CORS<&'static str> {
 ///
 /// # Arguments
 ///
-/// * `recipe` - Recipe to save, in JSON format
+/// * `commit` - JSON with Recipe to save, and a commit message.
 ///
 /// # Response
 ///
 /// * JSON response with "status" set to true or false.
 ///
 ///
-/// The body of the POST should be a valid Recipe in JSON format. If it cannot be parsed an
-/// error 400 will be returned.
+/// The body of the POST should be JSON object with the recipe under recipe: and a commit message
+/// string under message:. If it cannot be parsed an error 400 will be returned.
 ///
 /// # Examples
 ///
 /// ## POST body
 ///
 /// ```json
-/// {
+/// { recipe: {
 ///     "name": "http-server",
 ///     "description": "An example http server with PHP and MySQL support.",
 ///     "modules": [
@@ -1194,6 +1202,8 @@ pub fn options_recipes_new() -> CORS<&'static str> {
 ///             "version": "3.0.*"
 ///         }
 ///     ]
+///   },
+///   message: "Add a new recipe for http servers"
 /// }
 /// ```
 ///
@@ -1204,15 +1214,20 @@ pub fn options_recipes_new() -> CORS<&'static str> {
 ///     "status": true
 /// }
 /// ```
-#[post("/recipes/new", format="application/json", data="<recipe>")]
-pub fn recipes_new_json(recipe: JSON<Recipe>, repo: State<RecipeRepo>) -> CORS<JSON<RecipesNewResponse>> {
-    info!("/recipes/new/ (JSON)"; "recipe.name" => recipe.name);
+#[post("/recipes/new", format="application/json", data="<commit>")]
+pub fn recipes_new_json(commit: JSON<RecipesNewPost>, repo: State<RecipeRepo>) -> CORS<JSON<RecipesNewResponse>> {
+    info!("/recipes/new/ (JSON)"; "recipe.name" => commit.recipe.name, "message" => commit.message);
     // TODO Get the user's branch name. Use master for now.
 
-    let status = match recipe::write(&repo.repo(), &recipe, "master", None) {
+    let message = match commit.message {
+        Some(ref s) => Some(s.as_str()),
+        None => None
+    };
+
+    let status = match recipe::write(&repo.repo(), &commit.recipe, "master", message) {
         Ok(result) => result,
         Err(e) => {
-            error!("recipes_new"; "recipe" => format!("{:?}", recipe), "error" => format!("{:?}", e));
+            error!("recipes_new"; "recipe" => format!("{:?}", commit.recipe), "error" => format!("{:?}", e));
             false
         }
     };
