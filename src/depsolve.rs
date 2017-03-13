@@ -10,7 +10,9 @@ use std::cell::RefCell;
 pub fn solve_dependencies(conn: &Connection, exprs: &mut Vec<Rc<DepCell<DepExpression>>>) -> Result<Vec<i64>, String> {
     let mut assignments = HashMap::new();
 
+    info!("Starting unit propagation");
     unit_propagation(exprs, &mut assignments);
+    info!("Unit propagation done.");
 
     // FIXME:  For now, only return results if unit_propagation was able to do everything.  This
     // should handle most basic cases.  More complicated cases will require real dependency
@@ -30,6 +32,8 @@ pub fn solve_dependencies(conn: &Connection, exprs: &mut Vec<Rc<DepCell<DepExpre
 }
 
 fn unit_propagation(exprs: &mut Vec<Rc<DepCell<DepExpression>>>, assignments: &mut HashMap<DepAtom, bool>) -> bool {
+// XXX TOO MUCH DATA
+//    println!("{:?}", exprs);
     unit_propagation_helper(exprs, assignments, true, &mut 0)
 }
 
@@ -55,6 +59,12 @@ fn unit_propagation(exprs: &mut Vec<Rc<DepCell<DepExpression>>>, assignments: &m
 fn unit_propagation_helper(exprs: &mut Vec<Rc<DepCell<DepExpression>>>, assignments: &mut HashMap<DepAtom, bool>, assign: bool, change_count: &mut i64) -> bool {
     let mut ever_changed = false;
 
+    info!("unit helper called"; "assign" => assign, "change_count" => format!("{}", change_count));
+/*
+    if (!assign) {
+        info!("assign == false"; "assignments" => format!("{:?}", assignments));
+    }
+*/
     loop {
         let mut indices_to_remove = Vec::new();
         let mut indices_to_replace = Vec::new();
@@ -67,6 +77,7 @@ fn unit_propagation_helper(exprs: &mut Vec<Rc<DepCell<DepExpression>>>, assignme
 
             match *(val.borrow_mut()) {
                 DepExpression::Atom(ref a) => {
+                    info!("Atom");
                     if !assignments.contains_key(&a) {
                         if assign {
                             assignments.insert(a.clone(), true);
@@ -86,6 +97,7 @@ fn unit_propagation_helper(exprs: &mut Vec<Rc<DepCell<DepExpression>>>, assignme
                 DepExpression::Not(ref rc) => {
                     match *(rc.borrow()) {
                         DepExpression::Atom(ref a) => {
+                            info!("Not Atom");
                             if !assignments.contains_key(&a) {
                                 if assign {
                                     assignments.insert(a.clone(), false);
@@ -102,11 +114,13 @@ fn unit_propagation_helper(exprs: &mut Vec<Rc<DepCell<DepExpression>>>, assignme
                             }
                         },
                         // TODO?
-                        _ => ()
+                        //_ => ()
+                        ref exp => { info!("Unhandled Not {:?}", exp); () }
                     }
                 },
 
                 DepExpression::And(ref mut and_list) => {
+                    info!("And, calling _helper");
                     // recurse on this list of expressions
                     if unit_propagation_helper(and_list, assignments, assign, change_count) {
                         changed = true;
@@ -127,6 +141,7 @@ fn unit_propagation_helper(exprs: &mut Vec<Rc<DepCell<DepExpression>>>, assignme
                 },
 
                 DepExpression::Or(ref mut or_list) => {
+                    info!("Or");
                     // For or, check if there's only one thing first, so we don't waste time
                     // processing the child with assign=false just to (potentially) redo it with
                     // assign=true
@@ -138,9 +153,12 @@ fn unit_propagation_helper(exprs: &mut Vec<Rc<DepCell<DepExpression>>>, assignme
                         indices_to_remove.push(i);
                         changed = true;
                         *change_count = *change_count + 1;
-                    } else if unit_propagation_helper(or_list, assignments, false, change_count) {
-                        changed = true;
-                        *change_count = *change_count + 1;
+                    } else {
+                        info!("Or recursing helper");
+                        if unit_propagation_helper(or_list, assignments, false, change_count) {
+                            changed = true;
+                            *change_count = *change_count + 1;
+                        }
                     }
                 }
             }
@@ -149,6 +167,8 @@ fn unit_propagation_helper(exprs: &mut Vec<Rc<DepCell<DepExpression>>>, assignme
                 val.marker.set(*change_count);
             }
         }
+        info!("Finished looping over exprs");
+        info!("{} indices_to_replace", indices_to_replace.len());
 
         for i in indices_to_replace {
             let expr = match *(exprs.index_mut(i)).borrow_mut() {
